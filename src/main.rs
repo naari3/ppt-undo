@@ -1,5 +1,4 @@
 use mpsc::Sender;
-use process_memory::{DataMember, Memory, ProcessHandle};
 use std::os::windows::ffi::OsStringExt;
 use std::sync::mpsc;
 use std::thread;
@@ -14,19 +13,13 @@ use winapi::um::winbase::*;
 use winapi::um::winnt::*;
 
 mod state;
+use state::{get_seed, State};
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
-#[derive(Clone, Debug)]
-pub struct State {
-    pub columns: Vec<Vec<i32>>,
-    pub current_piece: Option<u32>,
-    pub hold: Option<u32>,
-}
-
 pub enum Notify {
     Start(u16),
-    Sync(Option<State>),
+    Sync(State),
 }
 
 macro_rules! w {
@@ -79,30 +72,37 @@ fn play(
     notifier: Sender<Notify>,
 ) -> Result<()> {
     const INSTRUCTION_ADDRESS: u64 = 0x14025B8CC;
-    const RNG_INITIAL_ADDRESS: u64 = 0x14003F87F;
+    // const RNG_INITIAL_ADDRESS: u64 = 0x14003F87F;
 
     unsafe {
         // breakpoint for initial RNG
-        let thread = breakpoint(pid, tid, continue_kind, process, RNG_INITIAL_ADDRESS)?;
+        // let thread = breakpoint(pid, tid, continue_kind, process, RNG_INITIAL_ADDRESS)?;
 
-        let mut regs = CONTEXT::default();
-        regs.ContextFlags = CONTEXT_ALL;
-        w!(GetThreadContext(thread, &mut regs));
+        // let mut regs = CONTEXT::default();
+        // regs.ContextFlags = CONTEXT_ALL;
+        // w!(GetThreadContext(thread, &mut regs));
 
-        // Game expects rng to be in rax
-        // Game shifts down by 16 bits so the seed is only 16 bits large
-        // Altering this line allows impossible seeds to be used (such as the one for the 19.71s
-        // sprint TAS), which lets us see what could have been if sega hadn't clipped the seed
-        // space.
-        println!("current seed: {}", regs.Rax);
-        // regs.Rax = seed & 0xFFFF;
-        w!(SetThreadContext(thread, &regs));
+        // // Game expects rng to be in rax
+        // // Game shifts down by 16 bits so the seed is only 16 bits large
+        // // Altering this line allows impossible seeds to be used (such as the one for the 19.71s
+        // // sprint TAS), which lets us see what could have been if sega hadn't clipped the seed
+        // // space.
+        // println!("current seed: {}", regs.Rax);
+        // // regs.Rax = seed & 0xFFFF;
+        // w!(SetThreadContext(thread, &regs));
 
-        CloseHandle(thread);
+        // CloseHandle(thread);
+
+        let mut current_seed = 0u16;
+        let mut current_state = State {
+            current_piece: None,
+            hold: None,
+            columns: vec![],
+        };
 
         loop {
             // breakpoint for input system
-            println!("asd");
+            // println!("asd");
             let thread = breakpoint(pid, tid, continue_kind, process, INSTRUCTION_ADDRESS)?;
 
             // let mut regs = CONTEXT::default();
@@ -115,6 +115,19 @@ fn play(
             // if SetThreadContext(thread, &regs) == 0 {
             //     panic!();
             // }
+            if let Ok(tmp_seed) = get_seed(process) {
+                if tmp_seed != current_seed {
+                    notifier.send(Notify::Start(tmp_seed))?;
+                    current_seed = tmp_seed;
+                };
+            };
+            let state = State::new_from_proc(process);
+            if let Ok(state) = state {
+                if state != current_state {
+                    notifier.send(Notify::Sync(state.clone()))?;
+                    current_state = state;
+                }
+            };
 
             CloseHandle(thread);
             // advance past breakpoint
@@ -131,20 +144,6 @@ unsafe fn wait_for_event() -> DEBUG_EVENT {
     let mut event = Default::default();
     WaitForDebugEvent(&mut event, INFINITE);
     event
-}
-
-fn read_state(process: HANDLE, address: u64) {
-    unsafe {
-        let mut original = 0u8;
-        let mut rw = 0;
-        w!(ReadProcessMemory(
-            process,
-            address as *mut _,
-            &mut original as *mut _ as *mut _,
-            1,
-            &mut rw,
-        ));
-    }
 }
 
 fn breakpoint(
@@ -314,6 +313,15 @@ fn find_ppt_process() -> Result<Option<u32>> {
 
 fn main() {
     let (tx, rx) = mpsc::channel();
+    thread::spawn(move || loop {
+        let notify = rx.recv().unwrap();
+        match notify {
+            Notify::Start(seed) => println!("seed updated: {}", seed),
+            Notify::Sync(state) => {
+                println!("state updated: {:?}", state.current_piece);
+            }
+        }
+    });
     if let Err(e) = sync(tx) {
         eprintln!("An error occured: {}", e);
     }
