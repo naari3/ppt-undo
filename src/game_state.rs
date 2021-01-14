@@ -24,11 +24,9 @@ impl GameState {
     }
 
     pub fn consume_mino(&mut self) {
-        // self.queue.remove(0);
-        println!("old rng: {:?}", self.generator.rng);
+        self.queue.remove(0);
         if let Some(next) = self.generator.next() {
             println!("next: {:?}", next);
-            println!("new rng: {:?}", self.generator.rng);
             self.queue.push(next);
         }
         println!("queue: {:?}", self.queue)
@@ -41,7 +39,9 @@ impl GameStateQueue {
     }
 
     fn push_new(&mut self, game_state: GameState) {
-        self.queue.push(game_state)
+        println!("{:?}", game_state.generator.current_bag);
+        self.queue.push(game_state);
+        println!("");
     }
 
     pub fn push_new_game(&mut self, seed: u32) {

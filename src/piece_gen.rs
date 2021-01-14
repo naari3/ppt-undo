@@ -12,8 +12,8 @@ pub enum Piece {
 
 #[derive(Clone, Debug)]
 pub struct PieceGenerator {
-    pub rng: u32,
-    current_bag: Vec<Piece>,
+    rng: u32,
+    pub current_bag: Vec<Piece>,
 }
 
 impl PieceGenerator {
