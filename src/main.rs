@@ -18,7 +18,6 @@ use state::{get_seed, State};
 mod game_state;
 mod piece_gen;
 use game_state::GameStateQueue;
-use piece_gen::PieceGenerator;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -101,6 +100,8 @@ fn play(
         let mut latest_seed = 0u16;
         let mut latest_state = State::new_blank();
         let mut latest_piece: Option<u16> = None;
+        let mut latest_hold: Option<u16> = None;
+        let mut latest_queue: Vec<u16> = vec![];
 
         loop {
             // breakpoint for input system
@@ -128,11 +129,16 @@ fn play(
             let state = State::new_from_proc(process);
             if let Ok(state) = state {
                 if state != latest_state {
-                    // TODO: consider with next pieces and hold
-                    if state.current_piece != None && state.current_piece != latest_piece {
-                        println!("state.current_piece: {:?}", state.current_piece);
-                        notifier.send(Notify::Sync(state.clone()))?;
-                        latest_piece = state.current_piece;
+                    if state.current_piece != None {
+                        if state.current_piece != latest_piece && state.hold != latest_hold
+                            || state.next_queue != latest_queue
+                        {
+                            println!("state.current_piece: {:?}", state.current_piece);
+                            notifier.send(Notify::Sync(state.clone()))?;
+                            latest_piece = state.current_piece;
+                            latest_hold = state.hold;
+                            latest_queue = state.next_queue.clone();
+                        }
                     }
                     latest_state = state;
                 }

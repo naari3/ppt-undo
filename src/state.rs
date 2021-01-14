@@ -8,6 +8,7 @@ pub struct State {
     pub columns: Vec<Vec<i16>>,
     pub current_piece: Option<u16>,
     pub hold: Option<u16>,
+    pub next_queue: Vec<u16>,
 }
 
 impl State {
@@ -51,10 +52,19 @@ impl State {
             );
         }
 
+        let next_queue =
+            DataMember::<[u32; 5]>::new_offset(handle, vec![0x140461B20, 0x378, 0xB8, 0x15C])
+                .read()?
+                .to_vec()
+                .into_iter()
+                .map(|f| f as u16)
+                .collect::<Vec<_>>();
+
         Ok(Self {
             columns,
             current_piece,
             hold,
+            next_queue,
         })
     }
 
@@ -63,6 +73,7 @@ impl State {
             columns: vec![],
             current_piece: None,
             hold: None,
+            next_queue: vec![],
         }
     }
 }

@@ -26,10 +26,8 @@ impl GameState {
     pub fn consume_mino(&mut self) {
         self.queue.remove(0);
         if let Some(next) = self.generator.next() {
-            println!("next: {:?}", next);
             self.queue.push(next);
         }
-        println!("queue: {:?}", self.queue)
     }
 }
 
@@ -39,23 +37,19 @@ impl GameStateQueue {
     }
 
     fn push_new(&mut self, game_state: GameState) {
-        println!("{:?}", game_state.generator.current_bag);
         self.queue.push(game_state);
-        println!("");
     }
 
     pub fn push_new_game(&mut self, seed: u32) {
         println!("seed updated: {}", seed);
         self.queue.clear();
-        self.push_new(GameState::new(seed, State::new_blank()))
+        self.push_new(GameState::new(seed, State::new_blank()));
     }
 
     pub fn push_new_state(&mut self, state: State) {
         if let Some(last) = self.queue.last() {
             let mut new_game_state = last.clone();
-            // TODO: Check current piece AND holded piece
-            // TODO: Resolve can't consume rng (may be clone or ownership or wrong usage?)
-            if new_game_state.state.current_piece != state.current_piece {
+            if new_game_state.state.next_queue != state.next_queue {
                 new_game_state.consume_mino()
             }
             new_game_state.state = state;
