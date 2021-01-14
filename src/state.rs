@@ -57,6 +57,14 @@ impl State {
             hold,
         })
     }
+
+    pub fn new_blank() -> Self {
+        State {
+            columns: vec![],
+            current_piece: None,
+            hold: None,
+        }
+    }
 }
 
 pub fn get_seed(handle: HANDLE) -> Result<u16> {

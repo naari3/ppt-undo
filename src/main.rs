@@ -15,6 +15,11 @@ use winapi::um::winnt::*;
 mod state;
 use state::{get_seed, State};
 
+mod game_state;
+mod piece_gen;
+use game_state::GameStateQueue;
+use piece_gen::PieceGenerator;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub enum Notify {
@@ -93,12 +98,9 @@ fn play(
 
         // CloseHandle(thread);
 
-        let mut current_seed = 0u16;
-        let mut current_state = State {
-            current_piece: None,
-            hold: None,
-            columns: vec![],
-        };
+        let mut latest_seed = 0u16;
+        let mut latest_state = State::new_blank();
+        let mut latest_piece: Option<u16> = None;
 
         loop {
             // breakpoint for input system
@@ -116,16 +118,23 @@ fn play(
             //     panic!();
             // }
             if let Ok(tmp_seed) = get_seed(process) {
-                if tmp_seed != current_seed {
+                if tmp_seed != latest_seed {
                     notifier.send(Notify::Start(tmp_seed))?;
-                    current_seed = tmp_seed;
+                    latest_seed = tmp_seed;
+                    latest_state = State::new_blank();
+                    latest_piece = None;
                 };
             };
             let state = State::new_from_proc(process);
             if let Ok(state) = state {
-                if state != current_state {
-                    notifier.send(Notify::Sync(state.clone()))?;
-                    current_state = state;
+                if state != latest_state {
+                    // TODO: consider with next pieces and hold
+                    if state.current_piece != None && state.current_piece != latest_piece {
+                        println!("state.current_piece: {:?}", state.current_piece);
+                        notifier.send(Notify::Sync(state.clone()))?;
+                        latest_piece = state.current_piece;
+                    }
+                    latest_state = state;
                 }
             };
 
@@ -313,12 +322,17 @@ fn find_ppt_process() -> Result<Option<u32>> {
 
 fn main() {
     let (tx, rx) = mpsc::channel();
-    thread::spawn(move || loop {
-        let notify = rx.recv().unwrap();
-        match notify {
-            Notify::Start(seed) => println!("seed updated: {}", seed),
-            Notify::Sync(state) => {
-                println!("state updated: {:?}", state.current_piece);
+    thread::spawn(move || {
+        let mut game_state_queue = GameStateQueue::new();
+        loop {
+            let notify = rx.recv().unwrap();
+            match notify {
+                Notify::Start(seed) => {
+                    game_state_queue.push_new_game(seed as u32);
+                }
+                Notify::Sync(state) => {
+                    game_state_queue.update_by(state);
+                }
             }
         }
     });
