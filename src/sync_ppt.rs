@@ -1,4 +1,4 @@
-use mpsc::Sender;
+use mpsc::{Receiver, Sender};
 use std::os::windows::ffi::OsStringExt;
 use std::sync::mpsc;
 use winapi::um::debugapi::*;
@@ -20,6 +20,15 @@ pub enum Notify {
     Sync(State),
 }
 
+pub enum Message {
+    Test,
+}
+
+// workaround for https://github.com/retep998/winapi-rs/issues/945
+#[derive(Default)]
+#[repr(align(16))]
+struct Context(CONTEXT);
+
 macro_rules! w {
     ($f:ident($($content:tt)*)) => {
         match $f($($content)*) {
@@ -35,7 +44,7 @@ macro_rules! w {
     };
 }
 
-pub fn sync(notifier: Sender<Notify>) -> Result<()> {
+pub fn sync(notifier: Sender<Notify>, msger: Receiver<Message>) -> Result<()> {
     let pid = find_ppt_process()?.unwrap_or_else(|| {
         println!("No such process");
         std::process::exit(1)
@@ -52,7 +61,7 @@ pub fn sync(notifier: Sender<Notify>) -> Result<()> {
         let mut tid = dbg_event.dwThreadId;
         let mut continue_kind = DBG_EXCEPTION_NOT_HANDLED;
 
-        play(pid, &mut tid, &mut continue_kind, process, notifier)?;
+        play(pid, &mut tid, &mut continue_kind, process, notifier, msger)?;
 
         ContinueDebugEvent(pid, tid, continue_kind);
 
@@ -68,46 +77,33 @@ fn play(
     continue_kind: &mut u32,
     process: HANDLE,
     notifier: Sender<Notify>,
+    msger: Receiver<Message>,
 ) -> Result<()> {
     // const INSTRUCTION_ADDRESS: u64 = 0x14025B8CC;
     const INPUT_SYSTEM_ADDRESS: u64 = 0x1413C7D9A;
     // const RNG_INITIAL_ADDRESS: u64 = 0x14003F87F;
 
     unsafe {
-        // breakpoint for initial RNG
-        // let thread = breakpoint(pid, tid, continue_kind, process, RNG_INITIAL_ADDRESS)?;
-
-        // let mut regs = CONTEXT::default();
-        // regs.ContextFlags = CONTEXT_ALL;
-        // w!(GetThreadContext(thread, &mut regs));
-
-        // // Game expects rng to be in rax
-        // // Game shifts down by 16 bits so the seed is only 16 bits large
-        // // Altering this line allows impossible seeds to be used (such as the one for the 19.71s
-        // // sprint TAS), which lets us see what could have been if sega hadn't clipped the seed
-        // // space.
-        // println!("current seed: {}", regs.Rax);
-        // // regs.Rax = seed & 0xFFFF;
-        // w!(SetThreadContext(thread, &regs));
-
-        // CloseHandle(thread);
-
         let mut latest_seed = 0u16;
         let mut latest_state = State::new_blank();
 
         loop {
             let thread = breakpoint(pid, tid, continue_kind, process, INPUT_SYSTEM_ADDRESS)?;
 
-            // let mut regs = CONTEXT::default();
-            // regs.ContextFlags = CONTEXT_ALL;
-            // if GetThreadContext(thread, &mut regs) == 0 {
-            //     panic!();
-            // }
-            // // game expects input bitfield to be in rbx
-            // regs.Rbx = input;
-            // if SetThreadContext(thread, &regs) == 0 {
-            //     panic!();
-            // }
+            if let Ok(cmd) = msger.try_recv() {
+                match cmd {
+                    Message::Test => {
+                        let mut regs = Context::default().0;
+                        println!("%v {:p}", &regs);
+                        regs.ContextFlags = CONTEXT_ALL;
+                        w!(GetThreadContext(thread, &mut regs));
+                        regs.Rbx = 0x40;
+                        w!(SetThreadContext(thread, &regs));
+                    }
+                    _ => {}
+                }
+            }
+
             if let Ok(tmp_seed) = get_seed(process) {
                 if tmp_seed != latest_seed {
                     notifier.send(Notify::Start(tmp_seed))?;
@@ -193,8 +189,8 @@ fn breakpoint(
                 continue;
             }
 
-            // println!("expection: {:?}", info.ExceptionAddress);
-            // println!("originate: {:?}", address);
+            // println!("expection: {:?}", &info.ExceptionAddress);
+            // println!("originate: {:x?}", address);
 
             w!(WriteProcessMemory(
                 process,
@@ -205,7 +201,7 @@ fn breakpoint(
             ));
 
             let thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, 0, *tid);
-            let mut regs = CONTEXT::default();
+            let mut regs = Context::default().0;
             regs.ContextFlags = CONTEXT_ALL;
             w!(GetThreadContext(thread, &mut regs));
             regs.Rip = address;
@@ -220,7 +216,7 @@ fn breakpoint(
 fn step(pid: u32, tid: &mut u32, continue_kind: &mut u32) -> Result<()> {
     unsafe {
         let thread = OpenThread(THREAD_GET_CONTEXT | THREAD_SET_CONTEXT, 0, *tid);
-        let mut regs = CONTEXT::default();
+        let mut regs = Context::default().0;
         regs.ContextFlags = CONTEXT_ALL;
         if GetThreadContext(thread, &mut regs) == 0 {
             panic!();
@@ -235,17 +231,17 @@ fn step(pid: u32, tid: &mut u32, continue_kind: &mut u32) -> Result<()> {
             if ContinueDebugEvent(pid, *tid, *continue_kind) == 0 {
                 panic!();
             }
-            let dbg_event = wait_for_event();
-            *tid = dbg_event.dwThreadId;
-            if dbg_event.dwDebugEventCode != EXCEPTION_DEBUG_EVENT {
-                if dbg_event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT {
+            let event = wait_for_event();
+            *tid = event.dwThreadId;
+            if event.dwDebugEventCode != EXCEPTION_DEBUG_EVENT {
+                if event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT {
                     panic!("ppt exited");
                 }
                 *continue_kind = DBG_EXCEPTION_NOT_HANDLED;
                 continue;
             }
 
-            let info = &dbg_event.u.Exception().ExceptionRecord;
+            let info = &event.u.Exception().ExceptionRecord;
             if info.ExceptionCode != EXCEPTION_SINGLE_STEP {
                 *continue_kind = DBG_EXCEPTION_NOT_HANDLED;
                 continue;
