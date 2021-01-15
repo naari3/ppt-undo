@@ -15,9 +15,8 @@ impl State {
     pub fn new_from_proc(handle: HANDLE) -> Result<Self> {
         let handle = (handle, Architecture::from_native());
         let current_piece =
-            DataMember::<i32>::new_offset(handle, vec![0x140461B20, 0x378, 0x40, 0x140, 0x110])
-                .read()?;
-        let current_piece = if current_piece > 0 {
+            DataMember::<i32>::new_offset(handle, vec![0x140598A20, 0x38, 0x3c8, 0x8]).read()?;
+        let current_piece = if current_piece >= 0 {
             Some(current_piece as u16)
         } else {
             None
@@ -28,7 +27,7 @@ impl State {
         let hold = match hold_address {
             0 => None,
             _ => {
-                Some(DataMember::<u32>::new_offset(handle, vec![hold_address, 0x8]).read()? as u16)
+                Some(DataMember::<u32>::new_offset(handle, vec![hold_address + 0x8]).read()? as u16)
             }
         };
 
@@ -82,4 +81,11 @@ pub fn get_seed(handle: HANDLE) -> Result<u16> {
     let handle = (handle, Architecture::from_native());
     let seed = DataMember::<u16>::new_offset(handle, vec![0x140463FD8, 0x78]).read()?;
     Ok(seed)
+}
+
+pub fn get_is_current_piece_active(handle: HANDLE) -> Result<bool> {
+    let handle = (handle, Architecture::from_native());
+    let seed =
+        DataMember::<bool>::new_offset(handle, vec![0x140590F70, 0x20, 0x3C8, 0x1C]).read()?;
+    Ok(!seed)
 }

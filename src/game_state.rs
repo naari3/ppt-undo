@@ -50,6 +50,7 @@ impl GameStateQueue {
         if let Some(last) = self.queue.last() {
             let mut new_game_state = last.clone();
             if new_game_state.state.next_queue != state.next_queue {
+                // println!("{:?}", );
                 new_game_state.consume_mino()
             }
             new_game_state.state = state;

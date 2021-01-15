@@ -1,13 +1,13 @@
 // https://github.com/MinusKelvin/ultra-tas/blob/master/src/ppt1.rs
 #[derive(Clone, Debug)]
 pub enum Piece {
-    S,
-    Z,
-    J,
-    L,
-    T,
-    O,
-    I,
+    S, // 0
+    Z, // 1
+    J, // 2
+    L, // 3
+    T, // 4
+    O, // 5
+    I, // 6
 }
 
 #[derive(Clone, Debug)]

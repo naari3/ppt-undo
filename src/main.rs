@@ -13,7 +13,7 @@ use winapi::um::winbase::*;
 use winapi::um::winnt::*;
 
 mod state;
-use state::{get_seed, State};
+use state::{get_is_current_piece_active, get_seed, State};
 
 mod game_state;
 mod piece_gen;
@@ -76,6 +76,7 @@ fn play(
     notifier: Sender<Notify>,
 ) -> Result<()> {
     const INSTRUCTION_ADDRESS: u64 = 0x14025B8CC;
+    const INPUT_SYSTEM_ADDRESS: u64 = 0x1413C7D9A;
     // const RNG_INITIAL_ADDRESS: u64 = 0x14003F87F;
 
     unsafe {
@@ -99,14 +100,9 @@ fn play(
 
         let mut latest_seed = 0u16;
         let mut latest_state = State::new_blank();
-        let mut latest_piece: Option<u16> = None;
-        let mut latest_hold: Option<u16> = None;
-        let mut latest_queue: Vec<u16> = vec![];
 
         loop {
-            // breakpoint for input system
-            // println!("asd");
-            let thread = breakpoint(pid, tid, continue_kind, process, INSTRUCTION_ADDRESS)?;
+            let thread = breakpoint(pid, tid, continue_kind, process, INPUT_SYSTEM_ADDRESS)?;
 
             // let mut regs = CONTEXT::default();
             // regs.ContextFlags = CONTEXT_ALL;
@@ -123,26 +119,19 @@ fn play(
                     notifier.send(Notify::Start(tmp_seed))?;
                     latest_seed = tmp_seed;
                     latest_state = State::new_blank();
-                    latest_piece = None;
                 };
             };
-            let state = State::new_from_proc(process);
-            if let Ok(state) = state {
-                if state != latest_state {
-                    if state.current_piece != None {
-                        if state.current_piece != latest_piece && state.hold != latest_hold
-                            || state.next_queue != latest_queue
-                        {
-                            println!("state.current_piece: {:?}", state.current_piece);
+            if let Ok(active) = get_is_current_piece_active(process) {
+                if active {
+                    let state = State::new_from_proc(process);
+                    if let Ok(state) = state {
+                        if state != latest_state && state.current_piece != None {
                             notifier.send(Notify::Sync(state.clone()))?;
-                            latest_piece = state.current_piece;
-                            latest_hold = state.hold;
-                            latest_queue = state.next_queue.clone();
+                            latest_state = state;
                         }
                     }
-                    latest_state = state;
                 }
-            };
+            }
 
             CloseHandle(thread);
             // advance past breakpoint
