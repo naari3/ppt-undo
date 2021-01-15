@@ -1,7 +1,7 @@
 use process_memory::{Architecture, DataMember, Memory};
 use winapi::um::winnt::HANDLE;
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+use crate::Result;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct State {
