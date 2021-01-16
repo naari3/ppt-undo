@@ -5,7 +5,7 @@ use crate::state::State;
 pub struct GameState {
     pub generator: PieceGenerator,
     pub queue: Vec<Piece>,
-    state: State,
+    pub  state: State,
 }
 
 pub struct GameStateQueue {

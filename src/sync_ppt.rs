@@ -13,7 +13,10 @@ use winapi::um::winnt::*;
 
 use crate::Result;
 
-use crate::state::{get_is_current_piece_active, get_seed, State};
+use crate::game_state::GameState;
+use crate::state::{
+    get_is_current_piece_active, get_seed, write_board, write_current_piece, write_hold, State,
+};
 
 pub enum Notify {
     Start(u16),
@@ -21,7 +24,7 @@ pub enum Notify {
 }
 
 pub enum Message {
-    Test,
+    Undo(GameState),
 }
 
 // workaround for https://github.com/retep998/winapi-rs/issues/945
@@ -86,21 +89,34 @@ fn play(
     unsafe {
         let mut latest_seed = 0u16;
         let mut latest_state = State::new_blank();
+        let mut latest_gs = None;
 
         loop {
             let thread = breakpoint(pid, tid, continue_kind, process, INPUT_SYSTEM_ADDRESS)?;
 
             if let Ok(cmd) = msger.try_recv() {
                 match cmd {
-                    Message::Test => {
+                    Message::Undo(gs) => {
+                        println!(
+                            "cp: {:?}, hold: {:?}",
+                            &gs.state.current_piece, &gs.state.hold
+                        );
+                        if let Some(hold) = gs.state.hold {
+                            write_current_piece(process, hold)?;
+                        }
+
+                        if let Some(cp) = gs.state.current_piece {
+                            write_hold(process, cp)?;
+                        }
+
+                        write_board(process, gs.state.columns.clone())?;
                         let mut regs = Context::default().0;
-                        println!("%v {:p}", &regs);
                         regs.ContextFlags = CONTEXT_ALL;
                         w!(GetThreadContext(thread, &mut regs));
                         regs.Rbx = 0x40;
                         w!(SetThreadContext(thread, &regs));
+                        latest_gs = Some(gs.clone());
                     }
-                    _ => {}
                 }
             }
 

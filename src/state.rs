@@ -1,6 +1,8 @@
 use process_memory::{Architecture, DataMember, Memory};
 use winapi::um::winnt::HANDLE;
 
+use std::convert::TryInto;
+
 use crate::Result;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -75,6 +77,41 @@ impl State {
             next_queue: vec![],
         }
     }
+}
+
+pub fn write_current_piece(handle: HANDLE, piece: u16) -> Result<()> {
+    let handle = (handle, Architecture::from_native());
+    DataMember::<i32>::new_offset(handle, vec![0x140598A20, 0x38, 0x3c8, 0x8])
+        .write(&(piece as i32))?;
+    Ok(())
+}
+
+pub fn write_hold(handle: HANDLE, piece: u16) -> Result<()> {
+    let handle = (handle, Architecture::from_native());
+    DataMember::<i32>::new_offset(handle, vec![0x140598A20, 0x38, 0x3d0, 0x8])
+        .write(&(piece as i32))?;
+    Ok(())
+}
+
+pub fn write_board(handle: HANDLE, columns: Vec<Vec<i16>>) -> Result<()> {
+    let handle = (handle, Architecture::from_native());
+    let board_address =
+        DataMember::<usize>::new_offset(handle, vec![0x140461B20, 0x378, 0xC0, 0x10, 0x3C0, 0x18])
+            .read()?;
+    let columns_addresses =
+        DataMember::<[usize; 10]>::new_offset(handle, vec![board_address]).read()?;
+    for (column_address, column) in columns_addresses.iter().zip(columns.iter()) {
+        let column: &[i32; 40] = &column
+            .iter()
+            .map(|&n| n as i32)
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        DataMember::<[i32; 40]>::new_offset(handle, vec![*column_address])
+            .write(column)
+            .unwrap();
+    }
+    Ok(())
 }
 
 pub fn get_seed(handle: HANDLE) -> Result<u16> {
